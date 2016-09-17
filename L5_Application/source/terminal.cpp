@@ -114,6 +114,8 @@ bool terminalTask::taskEntry()
     /* Firmware upgrade handlers
      * Please read "netload_readme.txt" at ref_and_datasheets directory.
      */
+    CMD_HANDLER_FUNC(Task);
+    cp.addHandler(Task, "task", "Used to suspend task1 or task2");   //added terminal task
     CMD_HANDLER_FUNC(getFileHandler);
     CMD_HANDLER_FUNC(flashProgHandler);
     cp.addHandler(getFileHandler,   "file",  "Get a file using netload.exe or by using the following protocol:\n"

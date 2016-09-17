@@ -20,7 +20,7 @@
 
 #include "i2c_base.hpp"
 #include "lpc_sys.h"
-
+#include "printf_lib.h"
 
 
 /**
@@ -38,11 +38,42 @@
 void I2C_Base::handleInterrupt()
 {
     /* If transfer finished (not busy), then give the signal */
-    if (busy != i2cStateMachine()) {
+    if (busy != i2cStateMachine())
+    {
         long higherPriorityTaskWaiting = 0;
         xSemaphoreGiveFromISR(mTransferCompleteSignal, &higherPriorityTaskWaiting);
         portEND_SWITCHING_ISR(higherPriorityTaskWaiting);
     }
+
+}
+bool I2C_Base::SlaveInit(uint8_t SlaveADDR, uint8_t *buff1, uint32_t sizzbuff1) //recently set to bool 6:55PM
+{
+          LPC_SC->PCONP |= (1 << 26);  //table 46
+
+          mpI2CRegs->I2ADR0 = SlaveADDR;
+          mpI2CRegs->I2ADR1 = 0;
+          mpI2CRegs->I2ADR2 = 0;
+          mpI2CRegs->I2ADR3 = 0;
+
+          mpI2CRegs->I2MASK0 = 0;
+          mpI2CRegs->I2MASK1 = 0;
+          mpI2CRegs->I2MASK2 = 0;
+          mpI2CRegs->I2MASK3 = 0;
+
+         sTransaction.pSlaveDataRec = buff1;        //first address of buffer moved over to struct
+         sTransaction.trxSize = sizzbuff1;    //size of buffer being moved over to struct
+         sTransaction.slaveAddr = SlaveADDR;  //slave address being moved over to struct
+         sTransaction.Reg = buff1;  // I dereferenced the pointer to store the value of the first byte into first reg
+
+         LPC_I2C2->I2CONCLR = 0x6C;  //I am clearing
+         LPC_I2C2->I2CONSET = 0x44;
+
+         LPC_PINCON->PINSEL0 &= ~(0xF << 20);  // Clear
+         LPC_PINCON->PINSEL0 |=  (0xA << 20);  // Enable I2C Pins: SDA, SCL
+         //NVIC_EnableIRQ(I2C2_IRQn);   //enable interrupt request handler.
+         NVIC_EnableIRQ(mIRQ);
+         return true;
+
 }
 
 uint8_t I2C_Base::readReg(uint8_t deviceAddress, uint8_t registerAddress)
@@ -51,7 +82,6 @@ uint8_t I2C_Base::readReg(uint8_t deviceAddress, uint8_t registerAddress)
     readRegisters(deviceAddress, registerAddress, &byte, 1);
     return byte;
 }
-
 bool I2C_Base::readRegisters(uint8_t deviceAddress, uint8_t firstReg, uint8_t* pData, uint32_t bytesToRead)
 {
     I2C_SET_READ_MODE(deviceAddress);
@@ -114,9 +144,11 @@ bool I2C_Base::checkDeviceResponse(uint8_t deviceAddress)
     uint8_t notUsed = 0;
 
     // The I2C State machine will not continue after 1st state when length is set to 0
+
     uint32_t lenZeroToTestDeviceReady = 0;
 
     return readRegisters(deviceAddress, dummyReg, &notUsed, lenZeroToTestDeviceReady);
+
 }
 
 I2C_Base::I2C_Base(LPC_I2C_TypeDef* pI2CBaseAddr) :
@@ -171,7 +203,7 @@ bool I2C_Base::init(uint32_t pclk, uint32_t busRateInKhz)
     const uint32_t percent_low = (100 - percent_high);
     const uint32_t freq_hz = (busRateInKhz > 1000) ? (100 * 1000) : (busRateInKhz * 1000);
     const uint32_t half_clock_divider = (pclk / freq_hz) / 2;
-    mpI2CRegs->I2SCLH = (half_clock_divider * percent_high) / 100;
+    mpI2CRegs->I2SCLH = (half_clock_divider * percent_high) / 100; //ok ok ok ok ok
     mpI2CRegs->I2SCLL = (half_clock_divider * percent_low ) / 100;
 
     // Set I2C slave address and enable I2C
@@ -181,8 +213,9 @@ bool I2C_Base::init(uint32_t pclk, uint32_t busRateInKhz)
     mpI2CRegs->I2ADR3 = 0;
 
     // Enable I2C and the interrupt for it
-    mpI2CRegs->I2CONSET = 0x40;
-    NVIC_EnableIRQ(mIRQ);
+    mpI2CRegs->I2CONSET = 0x40;    //master only value
+
+    NVIC_EnableIRQ(mIRQ);   //why is this enabled right after CONSET
 
     return true;
 }
@@ -217,6 +250,7 @@ void I2C_Base::i2cKickOffTransfer(uint8_t devAddr, uint8_t regStart, uint8_t* pB
  * 0x20 START
  * 0x40 ENABLE
  */
+
 I2C_Base::mStateMachineStatus_t I2C_Base::i2cStateMachine()
 {
     enum {
@@ -237,6 +271,23 @@ I2C_Base::mStateMachineStatus_t I2C_Base::i2cStateMachine()
         readModeNackedBySlave = 0x48,
         dataAvailableAckSent  = 0x50,
         dataAvailableNackSent = 0x58,
+
+        SlaveAddressWriteAck = 0x60,
+        ArbitrationLostinSlaveADDR = 0x68,
+        GeneralCallACK = 0x70,
+        ArbitrationLostinSlaveRW = 0x78,
+        PreviouslyADDRwithSlaveADDR = 0x80,
+        AddrwithownSlaveADDR = 0x88,
+        PrevADDRwithGenCallACKRet = 0x90,
+        PrevADDRwithGenCallNACKRet = 0x98,
+        STOPorREPSTARTreceived = 0xA0,
+
+        //slave transmitter states
+        SlaveADDRWrecACKRet = 0xA8,
+        ArbitLostRWReadRecACKRet = 0xB0,
+        DataTransACKRec = 0xB8,
+        DataTransNACKRec = 0xC0,
+        lastByteTransACKRec = 0xC8,
     };
 
     mStateMachineStatus_t state = busy;
@@ -261,7 +312,7 @@ I2C_Base::mStateMachineStatus_t I2C_Base::i2cStateMachine()
     #define setNackFlag()       mpI2CRegs->I2CONCLR = (1<<2)
 
     /* yep ... lazy again */
-    #define setStop()           clearSTARTFlag();                           \
+    #define SetStop()           clearSTARTFlag();                           \
                                 mpI2CRegs->I2CONSET = (1<<4);               \
                                 clearSIFlag();                              \
                                 while((mpI2CRegs->I2CONSET&(1<<4)));        \
@@ -285,7 +336,7 @@ I2C_Base::mStateMachineStatus_t I2C_Base::i2cStateMachine()
             clearSTARTFlag();
             // No data to transfer, this is used just to test if the slave responds
             if(0 == mTransaction.trxSize) {
-                setStop();
+                SetStop();
             }
             else {
                 mpI2CRegs->I2DAT = mTransaction.firstReg;
@@ -294,15 +345,18 @@ I2C_Base::mStateMachineStatus_t I2C_Base::i2cStateMachine()
             break;
 
         case dataAckedBySlave:
-            if (I2C_READ_MODE(mTransaction.slaveAddr)) {
+            if (I2C_READ_MODE(mTransaction.slaveAddr))
+            {
                 setSTARTFlag(); // Send Repeat-start for read-mode
                 clearSIFlag();
             }
             else {
-                if(0 == mTransaction.trxSize) {
-                    setStop();
+                if(0 == mTransaction.trxSize)
+                {
+                    SetStop();
                 }
-                else {
+                else
+                {
                     mpI2CRegs->I2DAT = *(mTransaction.pMasterData);
                     ++mTransaction.pMasterData;
                     --mTransaction.trxSize;
@@ -328,7 +382,6 @@ I2C_Base::mStateMachineStatus_t I2C_Base::i2cStateMachine()
             *mTransaction.pMasterData = mpI2CRegs->I2DAT;
             ++mTransaction.pMasterData;
             --mTransaction.trxSize;
-
             if(1 == mTransaction.trxSize) { // Only 1 more byte remaining
                 setNackFlag();// NACK next byte --> Next state: dataAvailableNackSent
             }
@@ -340,22 +393,146 @@ I2C_Base::mStateMachineStatus_t I2C_Base::i2cStateMachine()
             break;
         case dataAvailableNackSent: // Read last-byte from Slave
             *mTransaction.pMasterData = mpI2CRegs->I2DAT;
-            setStop();
+            SetStop();
             break;
-
         case arbitrationLost:
             // We should not issue stop() in this condition, but we still need to end our  transaction.
             state = I2C_READ_MODE(mTransaction.slaveAddr) ? readComplete : writeComplete;
             mTransaction.error = mpI2CRegs->I2STAT;
             break;
+        case SlaveAddressWriteAck:
+            u0_dbg_printf("60\n");//im not sure this is right 0x60 first important state for i2c discovery
+            setAckFlag();
+            clearSIFlag();
+            sTransaction.pSlaveDataRec = sTransaction.Reg;
+            sTransaction.dataCounter = sTransaction.trxSize;
+            break;
 
+       case ArbitrationLostinSlaveADDR:     //im not sure this is right 0x68
+             u0_dbg_printf("68");
+             setAckFlag();
+             setSTARTFlag();
+             clearSIFlag();
+             sTransaction.pSlaveDataRec = sTransaction.Reg;
+             sTransaction.dataCounter = sTransaction.trxSize;
+             break;
+
+       case GeneralCallACK:  //0x70
+               u0_dbg_printf("70");
+               setAckFlag();
+               clearSIFlag();
+               sTransaction.pSlaveDataRec = sTransaction.Reg;
+               *sTransaction.pSlaveDataRec = LPC_I2C2->I2DAT;
+
+               break;
+       case ArbitrationLostinSlaveRW: //0x78
+               u0_dbg_printf("78");
+               LPC_I2C2->I2CONSET = 0x00000024;
+               LPC_I2C2->I2CONCLR = 0x00000008;
+               sTransaction.pSlaveDataRec = sTransaction.Reg;
+               *sTransaction.pSlaveDataRec = LPC_I2C2->I2DAT;  //trxSize is data counter!!!!!!!!!!!!!
+               break;
+       case PreviouslyADDRwithSlaveADDR://0x80
+               u0_dbg_printf("80\n");
+               if(notaddress != true)
+               {
+
+                  if(sTransaction.addr1>sTransaction.trxSize-1)
+                  {
+                      SetStop();
+                      //break;   //incase set stop returns
+                  }
+                  notaddress = true;
+                  sTransaction.addr1= LPC_I2C2->I2DAT;
+
+                  break;
+               }
+
+               else
+               {
+                   *sTransaction.pSlaveDataRec = LPC_I2C2->I2DAT;
+                   --sTransaction.dataCounter;
+                   if(sTransaction.dataCounter == 0)
+                   {
+                       LPC_I2C2->I2CONCLR = 0x0C;
+
+                   }
+                   else
+                   {
+                       LPC_I2C2->I2CONSET = 0x04;
+                       LPC_I2C2->I2CONCLR = 0x08;
+                       ++sTransaction.pSlaveDataRec;
+                   }
+                   break;
+               }
+       case AddrwithownSlaveADDR:  //0x88
+               u0_dbg_printf("88");
+               LPC_I2C2->I2CONSET = 0x00000004;
+               LPC_I2C2->I2CONCLR = 0x00000008;
+               break;
+       case PrevADDRwithGenCallACKRet:   //0x90
+               u0_dbg_printf("90");
+               *sTransaction.pSlaveDataRec = LPC_I2C2->I2DAT;
+               LPC_I2C2->I2CONCLR = 0x0000000C;
+               break;
+       case PrevADDRwithGenCallNACKRet:   //0x98
+               u0_dbg_printf("98");
+
+               LPC_I2C2->I2CONSET = (1 << 3);
+               LPC_I2C2->I2CONCLR = (1 << 4);
+               break;
+       case STOPorREPSTARTreceived:   //0xA0 2nd important state for i2c discovery  done done done done
+               u0_dbg_printf("A0\n");
+               setAckFlag();
+               clearSIFlag();
+               notaddress=true;
+               u0_dbg_printf("We are done with write\n");
+               break;
+       case SlaveADDRWrecACKRet:   //0xA8
+               u0_dbg_printf("A8\n");
+               mpI2CRegs->I2DAT=*sTransaction.pSlaveDataRec;
+               notaddress=true;
+               setAckFlag();  //set ack flag
+               clearSIFlag();
+               sTransaction.pSlaveDataRec = sTransaction.Reg;
+
+               sTransaction.pSlaveDataRec++;
+               break;
+       case ArbitLostRWReadRecACKRet:  //0xB0
+               u0_dbg_printf("B0");
+
+               setAckFlag();  //set ack flag
+               clearSIFlag();
+
+               break;
+       case DataTransACKRec:    //0xB8
+               u0_dbg_printf("B8\n");
+               LPC_I2C2->I2DAT = *sTransaction.pSlaveDataRec;
+               setAckFlag();  //set ack flag
+
+               clearSIFlag();
+
+               sTransaction.pSlaveDataRec++;
+               break;
+       case DataTransNACKRec: //C0
+               u0_dbg_printf("C0\n");
+               setAckFlag();
+               clearSIFlag();
+
+               u0_dbg_printf("0x%x\n",*sTransaction.pSlaveDataRec);
+               break;
+       case lastByteTransACKRec:
+               u0_dbg_printf("C8");
+               setAckFlag();  //set ack flag
+               clearSIFlag();
+               break;
         case slaveAddressNacked:    // no break
         case dataNackedBySlave:     // no break
         case readModeNackedBySlave: // no break
         case busError:              // no break
         default:
             mTransaction.error = mpI2CRegs->I2STAT;
-            setStop();
+            SetStop();
             break;
     }
 

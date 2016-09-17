@@ -106,6 +106,28 @@ CMD_HANDLER_FUNC(taskListHandler)
     return true;
 }
 
+CMD_HANDLER_FUNC(Task)
+{
+    scheduler_task *producer = scheduler_task::getTaskPtrByName("producer");
+    scheduler_task *consumer = scheduler_task::getTaskPtrByName("consumer");
+    if(cmdParams == "resume task1") {
+        output.printf("Resuming task1\n");
+        vTaskResume(producer->getTaskHandle());
+    }
+    else if(cmdParams == "resume task2") {
+        output.printf("Resuming task2\n");
+        vTaskResume(consumer->getTaskHandle());
+    }
+    else if(cmdParams == "suspend task1") {
+        output.printf("Suspending task1\n");
+        vTaskSuspend(producer->getTaskHandle());
+    }
+    else if(cmdParams == "suspend task2"){
+        output.printf("Suspending task2\n");
+        vTaskSuspend(consumer->getTaskHandle());
+    }
+    return true;
+}
 CMD_HANDLER_FUNC(memInfoHandler)
 {
 #if 0 /* This was for memory test */

@@ -73,6 +73,7 @@ class I2C_Base
          * future action to take due to the interrupt cause.
          */
         void handleInterrupt();
+        bool SlaveInit(uint8_t SlaveADDR,uint8_t *buff1, uint32_t sizzbuff1);
 
         /**
          * Reads a single byte from an I2C Slave
@@ -82,11 +83,13 @@ class I2C_Base
          */
         uint8_t readReg(uint8_t deviceAddress, uint8_t registerAddress);
 
+        uint8_t SlaveReg();
+
         /**
          * Writes a single byte to an I2C Slave
          * @param deviceAddress     The I2C Device Address
          * @param registerAddress   The register address to write
-         * @param value             The value to write to registerAddress
+         * @param value             The value to write to registerAddress //???
          * @return true if successful
          */
         bool writeReg(uint8_t deviceAddress, uint8_t registerAddress, uint8_t value);
@@ -111,10 +114,12 @@ class I2C_Base
 
 
     protected:
+
         /**
          * Protected constructor that requires parent class to provide I2C
          * base register address for which to operate this I2C driver
          */
+
         I2C_Base(LPC_I2C_TypeDef* pI2CBaseAddr);
 
         /**
@@ -122,6 +127,7 @@ class I2C_Base
          * @param pclk  The peripheral clock to the I2C Bus
          * @param busRateInKhz  The speed to set for this I2C Bus
          */
+
         bool init(uint32_t pclk, uint32_t busRateInKhz);
 
         /**
@@ -129,28 +135,29 @@ class I2C_Base
          * This can be used to disable all I2C operations in case of severe I2C Bus Failure
          * @warning Once disabled, I2C cannot be enabled again
          */
+
         void disableOperation() { mDisableOperation = true; }
 
 
     private:
+
         LPC_I2C_TypeDef* mpI2CRegs;    ///< Pointer to I2C memory map
         IRQn_Type        mIRQ;         ///< IRQ of this I2C
         bool mDisableOperation;        ///< Tracks if I2C is disabled by disableOperation()
         SemaphoreHandle_t mI2CMutex;   ///< I2C Mutex used when FreeRTOS is running
         SemaphoreHandle_t mTransferCompleteSignal; ///< Signal that indicates read is complete
-
-        /**
+        bool notaddress = false; // use for first byte of buffer. address.
+         /**
          * The status of I2C is returned from the I2C function that handles state machine
          */
-        typedef enum {
+
+        typedef enum
+        {
             busy,
             readComplete,
             writeComplete
         } __attribute__((packed)) mStateMachineStatus_t;
 
-        /**
-         * This structure contains I2C transaction parameters
-         */
         typedef struct
         {
             uint32_t trxSize;   ///< # of bytes to transfer.
@@ -160,8 +167,22 @@ class I2C_Base
             uint8_t *pMasterData;  ///< Buffer of the I2C Read or Write
         } mI2CTransaction_t;
 
+        typedef struct
+        {
+            uint32_t trxSize;   ///< This is the size of buffer in bytes.
+            uint8_t slaveAddr;  ///< Slave address defined.
+            uint8_t *Reg;        ///first byte of the buffer?
+            uint8_t error;      ///8 bit error reporting. May need to be 32 bits.
+            uint8_t *pSlaveDataRec;  //
+            uint8_t dataCounter;   //
+            uint8_t addr1;
+        } sI2CTransaction_t;
+
         /// The I2C Input Output frame that contains I2C transaction information
-        mI2CTransaction_t mTransaction;
+
+        mI2CTransaction_t mTransaction;   //master transaction
+
+        sI2CTransaction_t sTransaction;   //slave transaction
 
         /**
          * When an interrupt occurs, this handles the I2C State Machine action
@@ -170,6 +191,7 @@ class I2C_Base
          *              - Write is complete
          *              - Read  is complete
          */
+
         mStateMachineStatus_t i2cStateMachine();
 
         /**
@@ -182,7 +204,8 @@ class I2C_Base
          * @param transferSize      The number of bytes to read/write
          * @returns true if the transfer was successful
          */
-        bool transfer(uint8_t deviceAddress, uint8_t firstReg, uint8_t* pData, uint32_t transferSize);
+
+        bool transfer(uint8_t deviceAddress, uint8_t firstReg, uint8_t* pData, uint32_t transferSize); //i added friend 8:35PM
 
         /**
          * This is the entry point for an I2C transaction
@@ -191,7 +214,8 @@ class I2C_Base
          * @param pBytes    The pointer to one or more data bytes to read or write
          * @param len       The length of the I2C transaction
          */
-        void i2cKickOffTransfer(uint8_t devAddr, uint8_t regStart, uint8_t* pBytes, uint32_t len);
+
+        void i2cKickOffTransfer(uint8_t devAddr, uint8_t regStart, uint8_t* pBytes, uint32_t len);  //i added friend 8:35PM
 };
 
 
